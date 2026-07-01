@@ -9,10 +9,10 @@
 </p>
 
 <p align="center">
-  <img src="samples/t1_q1_micro.jpg" width="45%" alt="謎のミクロ写真">
-  <img src="samples/t1_q1_reveal.jpg" width="45%" alt="種明かし">
+  <img src="samples/t6_q1_micro.jpg" width="45%" alt="謎のミクロ写真">
+  <img src="samples/t6_q1_reveal.jpg" width="45%" alt="種明かし">
 </p>
-<p align="center"><em>左：謎のミクロ写真（何の生き物？）　→　右：種明かし（手のひらの小さな虫）</em></p>
+<p align="center"><em>左：謎のミクロ写真（規則正しく並ぶ粒は…？）　→　右：種明かし（ショウリョウバッタの複眼）</em></p>
 
 ---
 
