@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ミクロGP — 顕微クイズ進行卓</title>
+<style>
+/* ============================================================
+   ミクロGP — host-only quiz runner (single file, no network)
+   Aesthetic: peering through the eyepiece. Deep field-of-view
+   black-teal, bioluminescent green, specimen amber, stain magenta.
+   ============================================================ */
+:root{
+  /* ☀ LIGHT — daytime lecture room (default) */
+  --bg:#eceee6; --bg2:#f3f4ee; --bg3:#e0e4da;
+  --panel:rgba(255,255,255,.74);
+  --ink:#15241c; --ink-dim:#566a5f; --ink-faint:#93a298;
+  --lum:#0f8f52; --lum-deep:#0b6a3d;
+  --amber:#b9780a;
+  --stain:#c0357a;
+  --line:rgba(20,45,32,.16);
+  --line-strong:rgba(20,45,32,.32);
+  --good:#0f8f52; --part:#b9780a; --miss:#8a9a90;
+  --on-accent:#ffffff; --on-amber:#ffffff; --on-miss:#ffffff;
+  --reveal-bg:rgba(244,245,239,.96);
+  --stage-bg:radial-gradient(110% 90% at 50% 45%,#2a332e,#1b211d);
+  --scan:rgba(20,45,32,1); --scan-op:.035;
+  --barbg:rgba(0,0,0,.05);
+  --grain-op:.03; --grain-blend:multiply;
+  --fov:radial-gradient(120% 90% at 50% 32%, rgba(120,180,150,.18), transparent 60%),
+        radial-gradient(140% 120% at 50% 50%, transparent 62%, rgba(110,130,115,.12) 100%),
+        linear-gradient(180deg,#f4f5ef,#e8eae2);
+  --display:"DIN Condensed","DIN Alternate","Futura","Hiragino Sans",sans-serif;
+  --body:"Hiragino Sans","Hiragino Kaku Gothic ProN",system-ui,sans-serif;
+  --mono:"Menlo","SF Mono",ui-monospace,monospace;
+}
+[data-theme="dark"]{
+  /* ☾ DARK — eyepiece field of view */
+  --bg:#06100e; --bg2:#0a1815; --bg3:#0e221d;
+  --panel:rgba(12,26,22,.78);
+  --ink:#dcf5e7; --ink-dim:#7a988d; --ink-faint:#4d655d;
+  --lum:#54ffa3; --lum-deep:#1d8d5e;
+  --amber:#ffc24b;
+  --stain:#ff5d9e;
+  --line:rgba(120,170,150,.16);
+  --line-strong:rgba(120,170,150,.34);
+  --good:#54ffa3; --part:#ffc24b; --miss:#56756b;
+  --on-accent:#03110a; --on-amber:#160d00; --on-miss:#04100c;
+  --reveal-bg:rgba(4,9,8,.94);
+  --stage-bg:radial-gradient(110% 90% at 50% 45%,#0c1c18,#050b09);
+  --scan:#ffffff; --scan-op:.06;
+  --barbg:rgba(255,255,255,.04);
+  --grain-op:.05; --grain-blend:overlay;
+  --fov:radial-gradient(120% 90% at 50% 38%, rgba(34,86,70,.42), transparent 60%),
+        radial-gradient(140% 120% at 50% 50%, transparent 52%, rgba(0,0,0,.72) 100%),
+        linear-gradient(180deg,#0a1815,#06100e);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:var(--body); -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+}
+/* atmospheric field-of-view background */
+body::before{
+  content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
+  background:var(--fov);
+}
+/* faint grain */
+body::after{
+  content:""; position:fixed; inset:0; z-index:0; pointer-events:none; opacity:var(--grain-op);
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  mix-blend-mode:var(--grain-blend);
+}
+.app{position:relative; z-index:1; height:100%; display:flex; flex-direction:column}
+
+/* ---- top bar ---- */
+.topbar{display:flex; align-items:center; gap:18px; padding:14px 24px; border-bottom:1px solid var(--line)}
+.brand{display:flex; align-items:baseline; gap:12px}
+.reticle{width:30px;height:30px;border-radius:50%;border:1.5px solid var(--lum);position:relative;flex:none;box-shadow:0 0 14px rgba(84,255,163,.4) inset, 0 0 10px rgba(84,255,163,.25)}
+.reticle::before,.reticle::after{content:"";position:absolute;background:var(--lum);opacity:.8}
+.reticle::before{left:50%;top:3px;bottom:3px;width:1px;transform:translateX(-.5px)}
+.reticle::after{top:50%;left:3px;right:3px;height:1px;transform:translateY(-.5px)}
+.brand h1{font-family:var(--display);font-weight:700;letter-spacing:.14em;font-size:26px;margin:0;text-transform:uppercase}
+.brand .sub{font-family:var(--mono);font-size:10px;letter-spacing:.34em;color:var(--ink-dim);text-transform:uppercase}
+.topbar .spacer{flex:1}
+.qcount{font-family:var(--mono);font-size:13px;letter-spacing:.2em;color:var(--ink-dim)}
+.qcount b{color:var(--lum);font-size:18px}
+.btn{font-family:var(--display);letter-spacing:.12em;text-transform:uppercase;font-size:15px;
+  background:transparent;color:var(--ink);border:1px solid var(--line-strong);border-radius:3px;
+  padding:9px 16px;cursor:pointer;transition:.14s;white-space:nowrap}
+.btn:hover{border-color:var(--lum);color:var(--lum);box-shadow:0 0 0 1px rgba(84,255,163,.2)}
+.btn:active{transform:translateY(1px)}
+.btn.solid{background:var(--lum);color:var(--on-accent);border-color:var(--lum);font-weight:700}
+.btn.solid:hover{box-shadow:0 0 22px rgba(15,143,82,.35);color:var(--on-accent)}
+.btn.ghost{border-color:transparent;color:var(--ink-dim)}
+.btn.ghost:hover{color:var(--lum)}
+.btn:disabled{opacity:.3;cursor:not-allowed;border-color:var(--line);color:var(--ink-faint);box-shadow:none}
+
+/* ---- screens ---- */
+.screen{flex:1;min-height:0;display:none}
+.screen.active{display:flex}
+
+/* ===== SETUP ===== */
+#setup{flex-direction:column;align-items:center;justify-content:center;overflow:auto;padding:30px}
+.setup-card{width:min(880px,94vw);background:var(--panel);border:1px solid var(--line-strong);border-radius:8px;
+  padding:34px 40px;box-shadow:0 30px 80px rgba(0,0,0,.5)}
+.setup-card h2{font-family:var(--display);letter-spacing:.1em;font-size:22px;margin:0 0 4px;text-transform:uppercase}
+.setup-card .lead{color:var(--ink-dim);font-size:13px;margin:0 0 22px;line-height:1.7}
+.field{margin-bottom:24px}
+.field>label{display:block;font-family:var(--mono);font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--lum);margin-bottom:10px}
+.teams-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.team-input{display:flex;align-items:center;gap:10px;background:var(--bg3);border:1px solid var(--line);border-radius:4px;padding:8px 12px}
+.team-input .dot{width:12px;height:12px;border-radius:50%;flex:none}
+.team-input input{flex:1;background:transparent;border:none;color:var(--ink);font-family:var(--body);font-size:16px;outline:none}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.count-ctl{display:flex;align-items:center;gap:8px}
+.count-ctl button{width:34px;height:34px;border-radius:4px;border:1px solid var(--line-strong);background:transparent;color:var(--ink);font-size:20px;cursor:pointer}
+.count-ctl button:hover{border-color:var(--lum);color:var(--lum)}
+.count-ctl .n{font-family:var(--mono);font-size:20px;min-width:28px;text-align:center;color:var(--lum)}
+.drop{border:1.5px dashed var(--line-strong);border-radius:6px;padding:26px;text-align:center;cursor:pointer;transition:.15s;background:rgba(0,0,0,.18)}
+.drop:hover,.drop.over{border-color:var(--lum);background:rgba(84,255,163,.06)}
+.drop .big{font-family:var(--display);font-size:18px;letter-spacing:.08em;text-transform:uppercase}
+.drop .hint{color:var(--ink-dim);font-size:12px;margin-top:8px;line-height:1.7}
+.drop code{font-family:var(--mono);color:var(--amber);font-size:11px}
+.loaded{margin-top:14px;font-family:var(--mono);font-size:12px;color:var(--ink-dim);max-height:140px;overflow:auto}
+.loaded b{color:var(--lum)}
+.loaded .qrow{display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid var(--line)}
+details.help{margin-top:16px;font-size:12px;color:var(--ink-dim)}
+details.help summary{cursor:pointer;color:var(--lum);font-family:var(--mono);letter-spacing:.1em;font-size:11px;text-transform:uppercase}
+details.help p{line-height:1.8;margin:10px 0}
+.setup-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:26px}
+
+/* ===== GAME ===== */
+#game{flex-direction:row;gap:0}
+.stage-col{flex:1;min-width:0;display:flex;flex-direction:column;padding:22px 26px;gap:16px}
+/* specimen viewport */
+.viewport{flex:1;min-height:0;position:relative;border:1px solid var(--line-strong);border-radius:6px;
+  background:var(--stage-bg);overflow:hidden;display:flex;align-items:center;justify-content:center}
+.viewport img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+.viewport .placeholder{color:var(--ink-faint);font-family:var(--mono);letter-spacing:.2em;text-transform:uppercase;font-size:13px;text-align:center}
+/* corner brackets */
+.bracket{position:absolute;width:34px;height:34px;border:2px solid var(--lum);opacity:.55;pointer-events:none}
+.bracket.tl{top:12px;left:12px;border-right:0;border-bottom:0}
+.bracket.tr{top:12px;right:12px;border-left:0;border-bottom:0}
+.bracket.bl{bottom:12px;left:12px;border-right:0;border-top:0}
+.bracket.br{bottom:12px;right:12px;border-left:0;border-top:0}
+.specimen-tag{position:absolute;left:14px;bottom:14px;font-family:var(--mono);font-size:11px;letter-spacing:.18em;
+  color:var(--lum);background:rgba(0,0,0,.5);padding:4px 9px;border:1px solid var(--line);border-radius:3px;text-transform:uppercase}
+.scanlines{position:absolute;inset:0;pointer-events:none;opacity:.05;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,.55) 0 1px,transparent 1px 4px)}
+/* reveal overlay inside viewport */
+.reveal-layer{position:absolute;inset:0;background:var(--reveal-bg);display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px;animation:fadein .25s}
+.reveal-layer.show{display:flex}
+.reveal-layer .tag{font-family:var(--mono);letter-spacing:.34em;color:var(--amber);font-size:12px;text-transform:uppercase}
+.reveal-layer img{max-width:90%;max-height:74%;object-fit:contain;border:1px solid var(--line-strong);border-radius:4px}
+.reveal-layer .ans{font-family:var(--display);font-size:34px;letter-spacing:.06em;color:var(--ink)}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+
+.stage-tools{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.owner-pick{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim)}
+.owner-pick select{background:var(--bg3);color:var(--ink);border:1px solid var(--line-strong);border-radius:4px;padding:6px 8px;font-family:var(--body);font-size:14px}
+
+/* timer dial */
+.timer{display:flex;align-items:center;gap:14px}
+.dial{position:relative;width:74px;height:74px;flex:none}
+.dial svg{transform:rotate(-90deg)}
+.dial .num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:24px;color:var(--ink)}
+.timer-btns{display:flex;gap:8px}
+
+/* stage pills */
+.stage-pills{display:flex;gap:8px}
+.pill{font-family:var(--display);letter-spacing:.1em;text-transform:uppercase;font-size:14px;padding:8px 14px;border-radius:3px;border:1px solid var(--line-strong);color:var(--ink-dim);cursor:pointer;background:transparent}
+.pill.active{color:var(--on-accent);background:var(--lum);border-color:var(--lum);font-weight:700}
+.pill.s2.active{background:var(--stain);border-color:var(--stain);color:#fff}
+.pill:disabled{opacity:.35;cursor:not-allowed}
+.s2-flag{font-family:var(--mono);font-size:11px;color:var(--stain);letter-spacing:.12em;display:none}
+.s2-flag.show{display:inline}
+
+/* ---- judge / score panel ---- */
+.judge-col{width:420px;flex:none;border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column}
+.judge-head{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+.judge-head .t{font-family:var(--display);letter-spacing:.12em;text-transform:uppercase;font-size:16px}
+.matrix-mini{font-family:var(--mono);font-size:10px;color:var(--ink-dim);letter-spacing:.06em;text-align:right;line-height:1.5}
+.matrix-mini .s2{color:var(--stain)}
+.judge-list{flex:1;overflow:auto;padding:10px 14px}
+.jrow{display:flex;align-items:center;gap:10px;padding:9px 6px;border-bottom:1px solid var(--line)}
+.jrow .dot{width:13px;height:13px;border-radius:50%;flex:none}
+.jrow .nm{flex:1;font-size:16px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jrow .pts{font-family:var(--mono);font-size:13px;color:var(--amber);min-width:34px;text-align:right}
+.verds{display:flex;gap:5px}
+.vbtn{font-family:var(--display);letter-spacing:.04em;font-size:12px;text-transform:uppercase;border:1px solid var(--line-strong);background:transparent;color:var(--ink-dim);border-radius:3px;padding:6px 9px;cursor:pointer;transition:.12s}
+.vbtn:hover{border-color:var(--ink)}
+.vbtn.on.good{background:var(--good);border-color:var(--good);color:var(--on-accent);font-weight:700}
+.vbtn.on.part{background:var(--part);border-color:var(--part);color:var(--on-amber);font-weight:700}
+.vbtn.on.miss{background:var(--miss);border-color:var(--miss);color:var(--on-miss);font-weight:700}
+.jrow.owner{opacity:.5}
+.jrow.owner .verds{display:none}
+.jrow .ownertag{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--lum);text-transform:uppercase}
+.bonus-line{padding:12px 20px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:12px;letter-spacing:.08em}
+.bonus-line .lab{color:var(--ink-dim);text-transform:uppercase}
+.bonus-line .val{color:var(--lum);font-size:16px}
+.fair-toggle{display:flex;align-items:center;gap:7px;cursor:pointer;color:var(--ink-dim)}
+.fair-toggle .box{width:16px;height:16px;border:1px solid var(--line-strong);border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--lum)}
+.fair-toggle.on .box{border-color:var(--lum)}
+.judge-actions{padding:14px 18px;border-top:1px solid var(--line);display:flex;gap:10px}
+.judge-actions .btn{flex:1;text-align:center}
+
+/* ===== LEADERBOARD ===== */
+#board{flex-direction:column;align-items:center;justify-content:center;padding:30px;gap:24px}
+#board h2{font-family:var(--display);letter-spacing:.18em;text-transform:uppercase;font-size:34px;margin:0;color:var(--lum)}
+.lb{width:min(820px,92vw);display:flex;flex-direction:column;gap:12px}
+.lbrow{display:flex;align-items:center;gap:16px}
+.lbrow .rank{font-family:var(--display);font-size:26px;width:46px;text-align:center;color:var(--ink-dim)}
+.lbrow.r1 .rank{color:var(--amber)}
+.lbrow .nm{width:150px;font-size:18px;display:flex;align-items:center;gap:9px}
+.lbrow .nm .dot{width:14px;height:14px;border-radius:50%;flex:none}
+.lbrow .bar{flex:1;height:30px;background:var(--barbg);border:1px solid var(--line);border-radius:4px;overflow:hidden;position:relative}
+.lbrow .fill{height:100%;background:linear-gradient(90deg,var(--lum-deep),var(--lum));transition:width .6s cubic-bezier(.2,.8,.2,1);box-shadow:0 0 18px rgba(84,255,163,.3)}
+.lbrow.r1 .fill{background:linear-gradient(90deg,#9a6b16,var(--amber))}
+.lbrow .sc{font-family:var(--mono);font-size:22px;width:60px;text-align:right;color:var(--ink)}
+.board-actions{display:flex;gap:12px;margin-top:8px}
+.foot{position:fixed;bottom:10px;left:0;right:0;text-align:center;font-family:var(--mono);font-size:10px;letter-spacing:.2em;color:var(--ink-faint);text-transform:uppercase;z-index:2}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="brand">
+      <div class="reticle"></div>
+      <div>
+        <h1>ミクロGP</h1>
+        <div class="sub">Specimen Quiz · Biomimetics Lab</div>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <div class="qcount" id="qcount"></div>
+    <button class="btn ghost" id="themeBtn">☾ 夜</button>
+    <button class="btn ghost" id="toBoardBtn">順位 ▸</button>
+    <button class="btn ghost" id="toSetupBtn">設定</button>
+  </div>
+
+  <!-- ===== SETUP ===== -->
+  <div class="screen active" id="setup">
+    <div class="setup-card">
+      <h2>進行卓セットアップ</h2>
+      <p class="lead">伊藤PCだけで動く顕微クイズ進行卓。チームと画像を読み込んで開始。ネット不要・スコアは自動保存。</p>
+
+      <div class="field">
+        <label>チーム数</label>
+        <div class="count-ctl">
+          <button id="teamMinus">−</button><span class="n" id="teamN">6</span><button id="teamPlus">＋</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>チーム名</label>
+        <div class="teams-grid" id="teamsGrid"></div>
+      </div>
+
+      <div class="field">
+        <label>画像を読み込む</label>
+        <div class="drop" id="drop">
+          <div class="big">画像を選ぶ / ここにドロップ</div>
+          <div class="hint">マクロ写真（謎）＋ 通常スマホ写真（種明かし）。ファイル名規約：<br>
+            <code>t1_q1_macro.jpg</code> / <code>t1_q1_reveal.jpg</code>（t=チーム番号, q=問番号, macro/reveal=役割）</div>
+        </div>
+        <input type="file" id="fileInput" accept="image/*" multiple class="hidden">
+        <input type="file" id="folderInput" webkitdirectory directory class="hidden">
+        <div class="row" style="margin-top:10px;justify-content:center;gap:10px">
+          <button class="btn" id="pickFilesBtn">ファイルを選ぶ</button>
+          <button class="btn" id="pickFolderBtn">フォルダで読み込む（チーム別）</button>
+          <button class="btn ghost" id="clearFilesBtn">画像クリア</button>
+        </div>
+        <div class="loaded" id="loaded"></div>
+        <details class="help">
+          <summary>ファイル名のルール（読めば安心）</summary>
+          <p>・<b>macro / reveal</b> という語が入っていれば役割を判定（無ければ全部マクロ＝種明かし無し）。<br>
+            ・<b>t1〜t6</b> で出題チーム、<b>q1, q2…</b> で問の順番。マクロとrevealは <code>t#_q#</code> が一致するとペアになる。<br>
+            ・チーム/問番号が無くても動く（読み込み順に1問ずつ）。出題チームは進行画面で後から選び直せる。<br>
+            ・<b>機材名</b>（tg7 / om1 / fabre / hirox / sem）がファイル名にあると、画面に倍率ラベルとして出る（任意）。</p>
+        </details>
+      </div>
+
+      <div class="setup-actions">
+        <button class="btn ghost" id="resetAllBtn">全消去</button>
+        <button class="btn solid" id="startBtn">開始 ▸</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== GAME ===== -->
+  <div class="screen" id="game">
+    <div class="stage-col">
+      <div class="viewport" id="viewport">
+        <div class="placeholder" id="vp-ph">NO SPECIMEN LOADED</div>
+        <img id="macroImg" class="hidden" alt="">
+        <div class="scanlines"></div>
+        <div class="bracket tl"></div><div class="bracket tr"></div>
+        <div class="bracket bl"></div><div class="bracket br"></div>
+        <div class="specimen-tag" id="specTag"></div>
+        <div class="reveal-layer" id="revealLayer">
+          <div class="tag">種明かし — REVEAL</div>
+          <img id="revealImg" alt="">
+          <div class="ans" id="revealAns"></div>
+        </div>
+      </div>
+
+      <div class="stage-tools">
+        <div class="timer">
+          <div class="dial">
+            <svg width="74" height="74"><circle cx="37" cy="37" r="32" stroke="rgba(120,170,150,.18)" stroke-width="5" fill="none"/>
+              <circle id="dialArc" cx="37" cy="37" r="32" stroke="var(--lum)" stroke-width="5" fill="none" stroke-linecap="round" stroke-dasharray="201" stroke-dashoffset="0"/></svg>
+            <div class="num" id="dialNum">30</div>
+          </div>
+          <div class="timer-btns">
+            <button class="btn" id="timerStart">開始</button>
+            <button class="btn ghost" id="timerReset">↺</button>
+          </div>
+        </div>
+
+        <div class="stage-pills">
+          <button class="pill active" id="pill1">① ヒントなし</button>
+          <button class="pill s2" id="pill2">② ヒントあり</button>
+          <span class="s2-flag" id="s2flag">▲ 誰もドンピシャ無し → ②へ</span>
+        </div>
+
+        <div class="owner-pick">出題
+          <select id="ownerSel"></select>
+        </div>
+
+        <div class="spacer" style="flex:1"></div>
+        <button class="btn" id="revealBtn">種明かし</button>
+      </div>
+    </div>
+
+    <div class="judge-col">
+      <div class="judge-head">
+        <div class="t">判定</div>
+        <div class="matrix-mini">① ドンピシャ+10 / 一部+5<br><span class="s2">② ドンピシャ+5 / 一部+1</span></div>
+      </div>
+      <div class="judge-list" id="judgeList"></div>
+      <div class="bonus-line">
+        <label class="fair-toggle on" id="fairToggle"><span class="box">✓</span><span class="lab">納得（出題ボーナス有効）</span></label>
+        <div><span class="lab" style="color:var(--ink-dim)">出題ボーナス </span><span class="val" id="bonusVal">+0</span></div>
+      </div>
+      <div class="judge-actions">
+        <button class="btn ghost" id="prevBtn">◂ 前へ</button>
+        <button class="btn solid" id="nextBtn">次の問題 ▸</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== LEADERBOARD ===== -->
+  <div class="screen" id="board">
+    <h2>順位</h2>
+    <div class="lb" id="lb"></div>
+    <div class="board-actions">
+      <button class="btn solid" id="backToGameBtn">◂ クイズに戻る</button>
+    </div>
+  </div>
+</div>
+<div class="foot">ミクロGP · 単体動作 · スコア自動保存（localStorage）</div>
+
+<script>
+"use strict";
+/* ---------------- palette for teams ---------------- */
+const TEAM_COLORS=["#54ffa3","#ffc24b","#5db8ff","#ff5d9e","#c084ff","#ff8a3d","#4be3c8","#f6f266"];
+const PTS={1:{donpisha:10,partial:5,miss:0},2:{donpisha:5,partial:1,miss:0}};
+const TIMER_SEC=30, ARC_LEN=201;
+
+/* ---------------- state ---------------- */
+let state={
+  teams:[],            // {name}
+  questions:[],        // {key,owner(idx|null),order,device,macroURL,revealURL,answer,
+                       //   stage, verdicts:{teamIdx:{verdict,stage}}, fair}
+  cur:0,
+};
+let timer=null, timeLeft=TIMER_SEC;
+
+/* ---------------- persistence (scores only; images re-picked) ---------------- */
+function persist(){
+  const slim={
+    teams:state.teams,
+    cur:state.cur,
+    q:state.questions.map(q=>({key:q.key,owner:q.owner,answer:q.answer,stage:q.stage,fair:q.fair,verdicts:q.verdicts}))
+  };
+  try{localStorage.setItem("microgp",JSON.stringify(slim));}catch(e){}
+}
+function loadPersist(){
+  try{return JSON.parse(localStorage.getItem("microgp")||"null");}catch(e){return null;}
+}
+
+/* ---------------- setup screen ---------------- */
+let teamCount=6, teamNames=[];
+function initTeamNames(){
+  const saved=loadPersist();
+  if(saved&&saved.teams&&saved.teams.length){teamNames=saved.teams.map(t=>t.name);teamCount=teamNames.length;}
+  else teamNames=Array.from({length:teamCount},(_,i)=>"チーム"+(i+1));
+}
+function renderTeamInputs(){
+  document.getElementById("teamN").textContent=teamCount;
+  const g=document.getElementById("teamsGrid");g.innerHTML="";
+  for(let i=0;i<teamCount;i++){
+    const d=document.createElement("div");d.className="team-input";
+    d.innerHTML=`<span class="dot" style="background:${TEAM_COLORS[i%TEAM_COLORS.length]}"></span>`;
+    const inp=document.createElement("input");inp.value=teamNames[i]||("チーム"+(i+1));
+    inp.addEventListener("input",()=>teamNames[i]=inp.value);
+    d.appendChild(inp);g.appendChild(d);
+  }
+}
+document.getElementById("teamPlus").onclick=()=>{if(teamCount<8){teamCount++;teamNames[teamCount-1]=teamNames[teamCount-1]||("チーム"+teamCount);renderTeamInputs();}};
+document.getElementById("teamMinus").onclick=()=>{if(teamCount>2){teamCount--;renderTeamInputs();}};
+
+/* ---------------- file parsing ---------------- */
+const DEVICES={tg7:"TG-7 ｜ MACRO",om1:"OM-1 ｜ MACRO",fabre:"FABRE ｜ ×20-60",fable:"FABRE ｜ ×20-60",hirox:"HIROX ｜ ×20-2500",sem:"SEM ｜ SE"};
+let pendingFiles=[]; // raw File objects before start
+function parseTeamFromPath(relpath){
+  if(!relpath)return null;
+  const segs=relpath.split("/");
+  for(let i=0;i<segs.length-1;i++){ // folders only (skip filename)
+    const s=segs[i].toLowerCase().trim();
+    let m=s.match(/(?:チーム|ちーむ|team|グループ|班|班|t)\s*0*(\d{1,2})/);
+    if(m)return parseInt(m[1]);
+    if(/^0*(\d{1,2})$/.test(s))return parseInt(s);
+  }
+  return null;
+}
+function parseName(fn, relpath){
+  const noext=fn.replace(/\.[^.]+$/,"");
+  const base=noext.toLowerCase();
+  const t=base.match(/(?:^|[^a-z])t0*(\d{1,2})(?:[^0-9]|$)/);
+  const q=base.match(/(?:^|[^a-z])q0*(\d{1,3})(?:[^0-9]|$)/);
+  let role=null;
+  if(/reveal|reve|answer|答え|kotae/.test(base))role="reveal";
+  else if(/macro|micro|nazo|謎/.test(base))role="macro";
+  let device=null;
+  for(const k in DEVICES){if(base.includes(k)){device=DEVICES[k];break;}}
+  let team=t?parseInt(t[1]):null;
+  if(team==null) team=parseTeamFromPath(relpath);
+  // identity root for pairing macro/reveal when no q number is present
+  let root=base
+    .replace(/(?:^|[_\- ])(reveal|reve|answer|macro|micro|nazo|答え|謎)(?=$|[_\- ])/g,"")
+    .replace(/(?:^|[_\- ])t0*\d{1,2}(?=$|[_\- ])/g,"")
+    .replace(/(?:^|[_\- ])q0*\d{1,3}(?=$|[_\- ])/g,"")
+    .replace(/[_\- ]+/g,"").trim();
+  return {team, q:q?parseInt(q[1]):null, role, device, root:root||base};
+}
+function groupFiles(files){
+  const map=new Map(); let auto=0;
+  files.forEach(f=>{
+    const meta=parseName(f.name, f.webkitRelativePath||"");
+    const teamKey=meta.team!=null?("t"+meta.team):"x";
+    const idKey=meta.q!=null?("q"+meta.q):("r"+meta.root);
+    const key=teamKey+"_"+idKey;
+    if(!map.has(key)) map.set(key,{key,team:meta.team,q:meta.q,device:meta.device,macro:null,reveal:null,order:auto++});
+    const g=map.get(key);
+    if(meta.role==="reveal") g.reveal=f;
+    else if(meta.role==="macro") g.macro=f;
+    else { if(!g.macro)g.macro=f; else if(!g.reveal)g.reveal=f; } // role-less: 1st=macro,2nd=reveal
+    if(meta.device&&!g.device) g.device=meta.device;
+    if(meta.team!=null&&g.team==null)g.team=meta.team;
+    if(meta.q!=null&&g.q==null)g.q=meta.q;
+  });
+  let groups=[...map.values()];
+  groups.forEach(g=>{if(!g.macro&&g.reveal){g.macro=g.reveal;g.reveal=null;}}); // reveal-only → macro
+  groups.sort((a,b)=>{
+    const qa=a.q??999,qb=b.q??999; if(qa!==qb)return qa-qb;
+    const ta=a.team??999,tb=b.team??999; if(ta!==tb)return ta-tb;
+    return a.order-b.order;
+  });
+  return groups;
+}
+function showLoaded(groups){
+  const el=document.getElementById("loaded");
+  if(!groups.length){el.innerHTML="";return;}
+  el.innerHTML=`<div style="margin-bottom:6px"><b>${groups.length}</b> 問を検出</div>`+
+    groups.map((g,i)=>`<div class="qrow"><span>Q${i+1}　${g.team?("T"+g.team):"?"}${g.device?(" · "+g.device.split(" ")[0]):""}</span>`+
+      `<span>${g.macro?"◉mac":"—"} ${g.reveal?"◎rev":""}</span></div>`).join("");
+}
+function ingestFiles(fileList){
+  const arr=[...fileList].filter(f=>f.type.startsWith("image/"));
+  if(!arr.length)return;
+  pendingFiles=pendingFiles.concat(arr);
+  showLoaded(groupFiles(pendingFiles));
+}
+const drop=document.getElementById("drop"),fileInput=document.getElementById("fileInput"),folderInput=document.getElementById("folderInput");
+drop.onclick=()=>fileInput.click();
+fileInput.onchange=e=>ingestFiles(e.target.files);
+folderInput.onchange=e=>ingestFiles(e.target.files);
+document.getElementById("pickFilesBtn").onclick=e=>{e.stopPropagation();fileInput.click();};
+document.getElementById("pickFolderBtn").onclick=e=>{e.stopPropagation();folderInput.click();};
+document.getElementById("clearFilesBtn").onclick=e=>{e.stopPropagation();pendingFiles=[];showLoaded([]);};
+["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over");}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over");}));
+drop.addEventListener("drop",e=>{if(e.dataTransfer.files)ingestFiles(e.dataTransfer.files);});
+
+/* ---------------- start game ---------------- */
+function buildQuestions(groups){
+  return groups.map((g,i)=>({
+    key:g.key||("auto"+i),
+    owner:(g.team!=null&&g.team>=1&&g.team<=state.teams.length)?g.team-1:null,
+    order:i, device:g.device||null,
+    macroURL:g.macro?URL.createObjectURL(g.macro):null,
+    revealURL:g.reveal?URL.createObjectURL(g.reveal):null,
+    answer:"", stage:1, fair:true, verdicts:{}
+  }));
+}
+function restoreVerdicts(){
+  const saved=loadPersist(); if(!saved||!saved.q)return;
+  const byKey={}; saved.q.forEach(s=>byKey[s.key]=s);
+  state.questions.forEach(q=>{
+    const s=byKey[q.key]; if(s){q.owner=s.owner??q.owner;q.answer=s.answer||"";q.stage=s.stage||1;q.fair=s.fair!==false;q.verdicts=s.verdicts||{};}
+  });
+}
+document.getElementById("startBtn").onclick=()=>{
+  state.teams=Array.from({length:teamCount},(_,i)=>({name:(teamNames[i]||("チーム"+(i+1))).trim()||("チーム"+(i+1))}));
+  const groups=groupFiles(pendingFiles);
+  if(!groups.length){alert("画像を1枚以上読み込んでください。");return;}
+  state.questions=buildQuestions(groups);
+  restoreVerdicts();
+  state.cur=0;
+  persist();
+  go("game"); renderQuestion();
+};
+
+/* ---------------- navigation ---------------- */
+function go(scr){
+  document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
+  document.getElementById(scr).classList.add("active");
+  if(scr==="board")renderBoard();
+}
+document.getElementById("toBoardBtn").onclick=()=>go("board");
+document.getElementById("backToGameBtn").onclick=()=>go("game");
+document.getElementById("toSetupBtn").onclick=()=>{initTeamNames();renderTeamInputs();showLoaded(groupFiles(pendingFiles));go("setup");};
+document.getElementById("resetAllBtn").onclick=()=>{
+  if(confirm("チーム名・スコア・読み込み画像を全消去します。よろしいですか？")){
+    localStorage.removeItem("microgp");pendingFiles=[];teamCount=6;
+    initTeamNames();renderTeamInputs();showLoaded([]);state.questions=[];
+  }
+};
+
+/* ---------------- scoring ---------------- */
+function teamTotals(){
+  const tot=state.teams.map(()=>0);
+  state.questions.forEach(q=>{
+    // answer points
+    for(const ti in q.verdicts){
+      const v=q.verdicts[ti]; if(!v)continue;
+      tot[ti]+=(PTS[v.stage]||PTS[1])[v.verdict]||0;
+    }
+    // 出題ボーナス（判定が1つ以上入った＝プレイ済みの問題だけ計上）
+    if(q.owner!=null&&q.fair){
+      let judged=false,notDon=0;
+      for(let ti=0;ti<state.teams.length;ti++){
+        if(ti===q.owner)continue;
+        const v=q.verdicts[ti];
+        if(v)judged=true;
+        if(!v||v.verdict!=="donpisha")notDon++;
+      }
+      if(judged) tot[q.owner]+=notDon*3;
+    }
+  });
+  return tot;
+}
+function curBonus(){
+  const q=state.questions[state.cur]; if(!q||q.owner==null||!q.fair)return 0;
+  let notDon=0;
+  for(let ti=0;ti<state.teams.length;ti++){
+    if(ti===q.owner)continue;
+    const v=q.verdicts[ti];
+    if(!v||v.verdict!=="donpisha")notDon++;
+  }
+  return notDon*3;
+}
+
+/* ---------------- render question ---------------- */
+function renderQuestion(){
+  const q=state.questions[state.cur]; if(!q)return;
+  document.getElementById("qcount").innerHTML=`Q <b>${state.cur+1}</b> / ${state.questions.length}`;
+  // image
+  const img=document.getElementById("macroImg"),ph=document.getElementById("vp-ph");
+  if(q.macroURL){img.src=q.macroURL;img.classList.remove("hidden");ph.classList.add("hidden");}
+  else{img.classList.add("hidden");ph.classList.remove("hidden");}
+  document.getElementById("specTag").textContent=q.device||"";
+  // reveal hidden
+  document.getElementById("revealLayer").classList.remove("show");
+  // owner select
+  const sel=document.getElementById("ownerSel");
+  sel.innerHTML=`<option value="-1">—</option>`+state.teams.map((t,i)=>`<option value="${i}">${t.name}</option>`).join("");
+  sel.value=q.owner==null?"-1":q.owner;
+  // stage pills
+  setStageUI();
+  // judge list
+  renderJudge();
+  // fair toggle
+  document.getElementById("fairToggle").classList.toggle("on",q.fair);
+  document.getElementById("fairToggle").querySelector(".box").textContent=q.fair?"✓":"";
+  // timer
+  resetTimer();
+  // prev/next disabled states
+  document.getElementById("prevBtn").disabled=state.cur===0;
+  document.getElementById("nextBtn").textContent=(state.cur===state.questions.length-1)?"順位発表 ▸":"次の問題 ▸";
+  // answer prefill via prompt-free: store answer editing in reveal
+  document.getElementById("revealAns").textContent=q.answer||"";
+}
+function hasDonpishaStage1(q){
+  for(let ti=0;ti<state.teams.length;ti++){
+    if(ti===q.owner)continue;
+    const v=q.verdicts[ti];
+    if(v&&v.stage===1&&v.verdict==="donpisha")return true;
+  }
+  return false;
+}
+function setStageUI(){
+  const q=state.questions[state.cur];
+  document.getElementById("pill1").classList.toggle("active",q.stage===1);
+  document.getElementById("pill2").classList.toggle("active",q.stage===2);
+  // suggest stage2 if stage1 has verdicts but none donpisha
+  let anyJudged=false;
+  for(let ti=0;ti<state.teams.length;ti++){if(ti===q.owner)continue;const v=q.verdicts[ti];if(v&&v.stage===1)anyJudged=true;}
+  const suggest=anyJudged&&!hasDonpishaStage1(q);
+  document.getElementById("s2flag").classList.toggle("show",suggest&&q.stage===1);
+}
+document.getElementById("pill1").onclick=()=>{state.questions[state.cur].stage=1;setStageUI();renderJudge();persist();};
+document.getElementById("pill2").onclick=()=>{state.questions[state.cur].stage=2;setStageUI();renderJudge();persist();};
+document.getElementById("ownerSel").onchange=e=>{
+  const v=parseInt(e.target.value);state.questions[state.cur].owner=(v<0?null:v);
+  renderJudge();renderQuestion();persist();
+};
+
+/* ---------------- judge rows ---------------- */
+function renderJudge(){
+  const q=state.questions[state.cur];
+  const list=document.getElementById("judgeList");list.innerHTML="";
+  state.teams.forEach((t,ti)=>{
+    const row=document.createElement("div");row.className="jrow"+(ti===q.owner?" owner":"");
+    const v=q.verdicts[ti];
+    const pts=v?((PTS[v.stage]||PTS[1])[v.verdict]||0):0;
+    row.innerHTML=`<span class="dot" style="background:${TEAM_COLORS[ti%TEAM_COLORS.length]}"></span>
+      <span class="nm">${t.name}</span>`+
+      (ti===q.owner?`<span class="ownertag">出題</span>`:
+        `<span class="pts">${v?("+"+pts):""}</span>
+         <span class="verds">
+           <button class="vbtn good ${v&&v.verdict==='donpisha'?'on':''}" data-v="donpisha">ドンピシャ</button>
+           <button class="vbtn part ${v&&v.verdict==='partial'?'on':''}" data-v="partial">一部</button>
+           <button class="vbtn miss ${v&&v.verdict==='miss'?'on':''}" data-v="miss">ハズレ</button>
+         </span>`);
+    if(ti!==q.owner){
+      row.querySelectorAll(".vbtn").forEach(b=>b.onclick=()=>setVerdict(ti,b.dataset.v));
+    }
+    list.appendChild(row);
+  });
+  document.getElementById("bonusVal").textContent="+"+curBonus();
+}
+function setVerdict(ti,verdict){
+  const q=state.questions[state.cur];
+  const cur=q.verdicts[ti];
+  if(cur&&cur.verdict===verdict&&cur.stage===q.stage){delete q.verdicts[ti];} // toggle off
+  else{q.verdicts[ti]={verdict,stage:q.stage};}
+  setStageUI();renderJudge();persist();
+}
+
+/* fair toggle */
+document.getElementById("fairToggle").onclick=()=>{
+  const q=state.questions[state.cur];q.fair=!q.fair;
+  document.getElementById("fairToggle").classList.toggle("on",q.fair);
+  document.getElementById("fairToggle").querySelector(".box").textContent=q.fair?"✓":"";
+  renderJudge();persist();
+};
+
+/* ---------------- reveal ---------------- */
+document.getElementById("revealBtn").onclick=()=>{
+  const q=state.questions[state.cur];
+  const layer=document.getElementById("revealLayer");
+  if(layer.classList.contains("show")){layer.classList.remove("show");return;}
+  const ri=document.getElementById("revealImg");
+  if(q.revealURL){ri.src=q.revealURL;ri.classList.remove("hidden");}
+  else{ri.classList.add("hidden");}
+  // edit answer inline
+  const a=document.getElementById("revealAns");
+  a.textContent=q.answer||"（答えをクリックで入力）";
+  a.onclick=()=>{const v=prompt("この問題の答え:",q.answer||"");if(v!=null){q.answer=v;a.textContent=v;persist();}};
+  layer.classList.add("show");
+};
+
+/* ---------------- nav buttons ---------------- */
+document.getElementById("nextBtn").onclick=()=>{
+  if(state.cur===state.questions.length-1){go("board");return;}
+  state.cur++;persist();renderQuestion();
+};
+document.getElementById("prevBtn").onclick=()=>{if(state.cur>0){state.cur--;persist();renderQuestion();}};
+
+/* ---------------- timer ---------------- */
+function resetTimer(){clearInterval(timer);timer=null;timeLeft=TIMER_SEC;updateDial();document.getElementById("timerStart").textContent="開始";}
+function updateDial(){
+  document.getElementById("dialNum").textContent=timeLeft;
+  const off=ARC_LEN*(1-timeLeft/TIMER_SEC);
+  const arc=document.getElementById("dialArc");
+  arc.style.strokeDashoffset=off;
+  arc.style.stroke=timeLeft<=5?"var(--stain)":(timeLeft<=10?"var(--amber)":"var(--lum)");
+}
+document.getElementById("timerStart").onclick=()=>{
+  if(timer){clearInterval(timer);timer=null;document.getElementById("timerStart").textContent="再開";return;}
+  document.getElementById("timerStart").textContent="停止";
+  timer=setInterval(()=>{
+    timeLeft--;updateDial();
+    if(timeLeft<=0){clearInterval(timer);timer=null;document.getElementById("timerStart").textContent="開始";}
+  },1000);
+};
+document.getElementById("timerReset").onclick=resetTimer;
+
+/* ---------------- leaderboard ---------------- */
+function renderBoard(){
+  const tot=teamTotals();
+  const rows=state.teams.map((t,i)=>({name:t.name,score:tot[i],ci:i})).sort((a,b)=>b.score-a.score);
+  const max=Math.max(10,...rows.map(r=>r.score));
+  const lb=document.getElementById("lb");lb.innerHTML="";
+  rows.forEach((r,idx)=>{
+    const row=document.createElement("div");row.className="lbrow"+(idx===0&&r.score>0?" r1":"");
+    row.innerHTML=`<div class="rank">${idx+1}</div>
+      <div class="nm"><span class="dot" style="background:${TEAM_COLORS[r.ci%TEAM_COLORS.length]}"></span>${r.name}</div>
+      <div class="bar"><div class="fill" style="width:0%"></div></div>
+      <div class="sc">${r.score}</div>`;
+    lb.appendChild(row);
+    requestAnimationFrame(()=>{row.querySelector(".fill").style.width=(100*r.score/max)+"%";});
+  });
+}
+
+/* ---------------- keyboard ---------------- */
+document.addEventListener("keydown",e=>{
+  if(!document.getElementById("game").classList.contains("active"))return;
+  if(e.target.tagName==="INPUT"||e.target.tagName==="SELECT")return;
+  if(e.key===" "){e.preventDefault();document.getElementById("timerStart").click();}
+  else if(e.key==="Enter"){document.getElementById("revealBtn").click();}
+  else if(e.key==="ArrowRight"){document.getElementById("nextBtn").click();}
+  else if(e.key==="ArrowLeft"){document.getElementById("prevBtn").click();}
+  else if(e.key==="1"){document.getElementById("pill1").click();}
+  else if(e.key==="2"){document.getElementById("pill2").click();}
+});
+
+/* ---------------- theme ---------------- */
+function applyTheme(t){
+  if(t==="dark")document.documentElement.setAttribute("data-theme","dark");
+  else document.documentElement.removeAttribute("data-theme");
+  try{localStorage.setItem("microgp-theme",t);}catch(e){}
+  document.getElementById("themeBtn").textContent=(t==="dark"?"☀ 昼":"☾ 夜");
+}
+let theme=(localStorage.getItem("microgp-theme")||"light");
+document.getElementById("themeBtn").onclick=()=>{theme=(theme==="dark"?"light":"dark");applyTheme(theme);};
+
+/* ---------------- boot ---------------- */
+applyTheme(theme);
+initTeamNames();renderTeamInputs();
+</script>
+</body>
+</html>
