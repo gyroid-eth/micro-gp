@@ -5,6 +5,10 @@
 九州大学「生物模倣工学」の授業で、学生が自分で標本を電子顕微鏡・デジタルマイクロスコープで撮影し、その場で出題し合うために作りました。
 
 <p align="center">
+  <img src="demo.gif" width="85%" alt="ミクロGP デモ">
+</p>
+
+<p align="center">
   <img src="samples/t1_q1_micro.jpg" width="45%" alt="謎のミクロ写真">
   <img src="samples/t1_q1_reveal.jpg" width="45%" alt="種明かし">
 </p>
